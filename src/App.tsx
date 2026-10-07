@@ -69,6 +69,14 @@ export default function App() {
       <footer className="border-t border-cyan-900/20 py-6 text-center text-xs text-gray-600">
         <p>856-FFCI v3.1 — Sistema Multi-Agente de Grado Pericial</p>
         <p className="mt-1">Arquitectura de Inteligencia Forense Financiera y Cibernética</p>
+        <a 
+          href="/download.html" 
+          target="_blank"
+          className="inline-block mt-3 px-4 py-2 rounded bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30 transition-all text-xs font-bold"
+        >
+          <i className="fas fa-download mr-2"></i>
+          DESCARGAR PROYECTO (ZIP)
+        </a>
       </footer>
     </div>
   );
