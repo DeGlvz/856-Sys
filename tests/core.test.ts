@@ -46,7 +46,7 @@ describe('normalización y transliteración', () => {
   });
   it('sufijos societarios', () => {
     expect(normalizeName('Grupo Ejemplo S.A. de C.V.', { entity: true })).toBe('ejemplo');
-    expect(normalizeName('ACME Trading Company Limited', { entity: true })).toBe('acme trading');
+    expect(normalizeName('ACME Trading Company Limited', { entity: true })).toBe('acme');
   });
 });
 
@@ -195,6 +195,10 @@ describe('cotejo integrado', () => {
     const b = idx.screen({ kind: 'individual', name: 'Osama bin Laden', dob: '1990' }, meta)[0];
     expect(b.adjustments.some((x) => x.delta < 0)).toBe(true);
     expect(b.score_base).toBe(a);
+  });
+  it('nombre parcial no llega a CONFIRMED', () => {
+    const m = idx.screen({ kind: 'individual', name: 'Abdul Murad' }, meta);
+    expect(m[0].classification).not.toBe('CONFIRMED MATCH');
   });
   it('sin coincidencia', () => {
     expect(idx.screen({ kind: 'individual', name: 'María Fernanda López García' }, meta)).toHaveLength(0);
