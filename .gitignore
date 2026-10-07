@@ -36,7 +36,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
-list_sources.yaml
+# list_sources.yaml se genera en vivo vía /api/sources?format=yaml
 datasets/
 cache/
 *.log
