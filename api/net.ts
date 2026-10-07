@@ -6,6 +6,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Resolver } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import tls from 'node:tls';
+import { Socket } from 'node:net';
 import { createHash } from 'node:crypto';
 import { authorize } from './_lib/http.js';
 
@@ -192,6 +193,44 @@ async function httpHeaders(host: string) {
   };
 }
 
+/** WHOIS (puerto 43) para TLD sin servicio RDAP (p. ej. .mx): IANA → servidor referido. */
+function whoisQuery(server: string, q: string, ms = 8000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const sock = new Socket();
+    let buf = '';
+    const t = setTimeout(() => { sock.destroy(); reject(new Error('timeout WHOIS')); }, ms);
+    sock.connect(43, server, () => sock.write(q + '\r\n'));
+    sock.on('data', (d) => { buf += d.toString('utf8'); if (buf.length > 200_000) sock.destroy(); });
+    sock.on('close', () => { clearTimeout(t); resolve(buf); });
+    sock.on('error', (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+async function whois(domain: string) {
+  const tld = domain.split('.').pop()!;
+  const iana = await whoisQuery('whois.iana.org', tld);
+  const server = iana.match(/^whois:\s*(\S+)/im)?.[1];
+  if (!server) throw new Error(`Sin servidor WHOIS para .${tld}`);
+  const raw = await whoisQuery(server, domain);
+  const f = (...keys: string[]) => {
+    for (const k of keys) { const m = raw.match(new RegExp(`^\\s*${k}\\s*:\\s*(.+)$`, 'im')); if (m) return m[1].trim(); }
+    return null;
+  };
+  const created = f('Creation Date', 'Created On', 'Created', 'Registered on', 'Registration Time', 'created');
+  const toIso = (x: string | null) => { if (!x) return null; const d = new Date(x); return isNaN(d.getTime()) ? x : d.toISOString(); };
+  const registered = toIso(created);
+  return {
+    url: `whois://${server}`, sha256: createHash('sha256').update(raw).digest('hex'), source: `WHOIS ${server} (TLD sin RDAP)`,
+    registrar: f('Registrar', 'Sponsoring Registrar', 'registrar'), registrar_iana_id: f('Registrar IANA ID'),
+    registered, expires: toIso(f('Expiration Date', 'Registry Expiry Date', 'Expires On', 'Expiry Date', 'expires')),
+    last_changed: toIso(f('Last Updated On', 'Updated Date', 'Last Modified', 'changed')),
+    age_days: registered && !isNaN(new Date(registered).getTime()) ? Math.floor((Date.now() - new Date(registered).getTime()) / 864e5) : null,
+    status: [...raw.matchAll(/^\s*(?:Domain )?Status:\s*(\S+)/gim)].map((m) => m[1]),
+    nameservers: [...raw.matchAll(/^\s*(?:Name Server|DNS|nserver)\s*:\s*(\S+)/gim)].map((m) => m[1].toLowerCase()),
+    dnssec: f('DNSSEC'), registrant: [{ name: f('Registrant Organization', 'Registrant Name', 'Registrant') ?? '', handle: '' }].filter((r) => r.name),
+  };
+}
+
 async function domainIntel(domain: string) {
   const r = <T>(p: Promise<T>) => settle(p);
   const [a, aaaa, mx, ns, txt, caa, soa, dmarc] = await Promise.all([
@@ -209,14 +248,24 @@ async function domainIntel(domain: string) {
   const dmarcPolicy = dmarcRec[0]?.match(/;\s*p=(\w+)/i)?.[1] ?? null;
   const spfAll = spf[0]?.match(/([~\-?+])all\b/)?.[1] ?? null;
 
+  let webHost = domain;
+  let webA = a.ok ? a.value : [];
+  if (!webA.length) {
+    try { const w = await resolver.resolve4(`www.${domain}`); if (w.length) { webHost = `www.${domain}`; webA = w; } } catch { /* sin www */ }
+  }
+  const hasPublic = webA.some((ip) => !isPrivateIP(ip));
   const [rdap, ct, cert, http] = await Promise.all([
     settle(j(`https://rdap.org/domain/${domain}`)),
     settle(j(`https://crt.sh/?q=${encodeURIComponent('%.' + domain)}&output=json`, 25000)),
-    a.ok && a.value.some((ip) => !isPrivateIP(ip)) ? settle(tlsCert(domain)) : Promise.resolve({ ok: false as const, error: 'sin A público' }),
-    a.ok && a.value.some((ip) => !isPrivateIP(ip)) ? settle(httpHeaders(domain)) : Promise.resolve({ ok: false as const, error: 'sin A público' }),
+    hasPublic ? settle(tlsCert(webHost)) : Promise.resolve({ ok: false as const, error: 'sin registro A público (apex ni www)' }),
+    hasPublic ? settle(httpHeaders(webHost)) : Promise.resolve({ ok: false as const, error: 'sin registro A público (apex ni www)' }),
   ]);
 
   let rdapOut: any = { error: rdap.ok ? null : rdap.error };
+  if (!rdap.ok) {
+    const w = await settle(whois(domain));
+    rdapOut = w.ok ? w.value : { error: `RDAP: ${rdap.error}; WHOIS: ${w.error}` };
+  }
   if (rdap.ok) {
     const d = rdap.value.data;
     const ev = (n: string) => (d.events ?? []).find((e: any) => e.eventAction === n)?.eventDate ?? null;
@@ -250,11 +299,12 @@ async function domainIntel(domain: string) {
     };
   }
 
-  const ips = a.ok ? a.value.filter((ip) => !isPrivateIP(ip)).slice(0, 3) : [];
+  const ips = webA.filter((ip) => !isPrivateIP(ip)).slice(0, 3);
   const ipData = await Promise.all(ips.map((ip) => ipIntel(ip)));
 
   return {
     domain,
+    web_host: webHost,
     dns: {
       A: a.ok ? a.value : [], AAAA: aaaa.ok ? aaaa.value : [], MX: mx.ok ? mx.value : [], NS: ns.ok ? ns.value : [],
       TXT: txts, CAA: caa.ok ? caa.value : [], SOA: soa.ok ? soa.value : null,
