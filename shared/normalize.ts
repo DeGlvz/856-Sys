@@ -128,9 +128,18 @@ export function normalizeName(input: string, opts: { entity?: boolean } = {}): s
   let s = stripDiacritics(text).toLowerCase();
   s = s.replace(/[’'`´.]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
   let tokens = s.split(' ').filter(Boolean).filter((t) => !TITLES.has(t));
-  if (opts.entity) tokens = stripLegalSuffix(tokens);
+  if (opts.entity) {
+    tokens = stripLegalSuffix(tokens);
+    const distinct = tokens.filter((t) => !GENERIC_ENTITY.has(t));
+    if (distinct.length) tokens = distinct;
+  }
   return tokens.join(' ');
 }
+
+// Términos genéricos de razón social: se omiten si queda al menos un token distintivo
+const GENERIC_ENTITY = new Set(['bank', 'banco', 'banque', 'bancorp', 'trading', 'international', 'internacional', 'general', 'global',
+  'industries', 'industrial', 'enterprises', 'enterprise', 'services', 'servicios', 'investment', 'investments', 'inversiones',
+  'financial', 'financiera', 'finance', 'capital', 'commercial', 'comercial', 'import', 'export', 'and', 'y', 'de', 'del', 'la', 'el', 'the', 'of']);
 
 export function stripLegalSuffix(tokens: string[]): string[] {
   let joined = ' ' + tokens.join(' ') + ' ';

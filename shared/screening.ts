@@ -13,7 +13,19 @@ export const SCORING = {
   documentExact: 20,        // número de documento idéntico (+20, piso LIKELY)
   partialCoverageFloor: 0.85, // penalización por coincidencia parcial de tokens
   minBaseForAliasBonus: 50,
+  tokenMatchJW: 0.88,       // umbral de token coincidente (o Soundex idéntico)
+  tokenCoveragePenalty: 30, // −30 × fracción de tokens de la consulta sin correspondencia
 };
+
+/** Fracción de tokens de `a` con correspondencia en `b` (JW ≥ umbral o Soundex idéntico). */
+export function tokenCoverage(a: string, b: string): { matched: number; total: number } {
+  const ta = tokenize(a), tb = tokenize(b);
+  let matched = 0;
+  for (const x of ta) {
+    if (tb.some((y) => y === x || jaroWinkler(x, y) >= SCORING.tokenMatchJW || (x.length > 2 && y.length > 2 && soundex(x) === soundex(y) && x[0] === y[0]))) matched++;
+  }
+  return { matched, total: ta.length };
+}
 
 export function classify(score: number, t: Thresholds = DEFAULT_THRESHOLDS): MatchClass {
   if (score >= t.confirmed) return 'CONFIRMED MATCH';
@@ -161,6 +173,12 @@ export class WatchlistIndex {
       if (base < t.potential - 15 && !qDocs.length) return;
       const adjustments: { reason: string; delta: number }[] = [];
       const corroboration: string[] = [];
+      const cq = tokenCoverage(v.canonical, n.canon);
+      const cc = tokenCoverage(n.canon, v.canonical);
+      const fq = cq.matched / (cq.total || 1), fc = cc.matched / (cc.total || 1);
+      const cov = tokenize(n.canon).length <= v.tokens.length ? Math.min(fq, fc) : fq;
+      if (cov < 1) adjustments.push({ reason: `Cobertura de tokens de la consulta ${cq.matched}/${cq.total}`, delta: -Math.round(SCORING.tokenCoveragePenalty * (1 - cov) * 100) / 100 });
+      else if (fc < 1) adjustments.push({ reason: `Coincidencia parcial: ${cc.matched}/${cc.total} tokens del registro`, delta: -Math.round(SCORING.tokenCoveragePenalty * 0.5 * (1 - fc) * 100) / 100 });
       if (n.quality !== 'primary' && base >= SCORING.minBaseForAliasBonus) {
         const d = SCORING.alias[n.quality];
         if (d) adjustments.push({ reason: `Alias ${n.quality === 'good' ? 'good quality' : 'low quality'} (estándar ONU)`, delta: d });
@@ -182,6 +200,10 @@ export class WatchlistIndex {
       }
       if (base < t.potential - 15 && !docHit) return;
       let score = Math.max(0, Math.min(100, base + adjustments.reduce((s, a) => s + a.delta, 0)));
+      if ((cov < 1 || fc < 1) && score >= t.confirmed && !docHit) {
+        adjustments.push({ reason: 'Coincidencia parcial de nombre: tope por debajo de CONFIRMED', delta: Math.round((t.confirmed - 0.5 - score) * 100) / 100 });
+        score = t.confirmed - 0.5;
+      }
       if (docHit) score = Math.max(score, t.likely); // documento idéntico: piso LIKELY
       const prev = best.get(n.entity);
       if (prev && prev.score >= score) return;
