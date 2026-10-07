@@ -6,77 +6,81 @@ import AliasPipeline from './components/AliasPipeline';
 import WatchlistTable from './components/WatchlistTable';
 import OutputPreview from './components/OutputPreview';
 import CapabilitiesPanel from './components/CapabilitiesPanel';
-import InvocationPanel from './components/InvocationPanel';
+import { CaseProvider, useCase } from './lib/caseStore';
+import CaseModule from './components/ops/CaseModule';
+import AliasModule from './components/ops/AliasModule';
+import DocModule from './components/ops/DocModule';
+import NetModule from './components/ops/NetModule';
+import CyberModule from './components/ops/CyberModule';
+import DictamenModule from './components/ops/DictamenModule';
+import SourcesModule from './components/ops/SourcesModule';
+
+const TABS = [
+  { id: 'case', label: 'CASO', icon: 'fa-folder-open' },
+  { id: 'alias', label: 'ALIAS / LISTAS', icon: 'fa-fingerprint' },
+  { id: 'doc', label: 'DOCUMENTAL', icon: 'fa-file-shield' },
+  { id: 'net', label: 'RED', icon: 'fa-network-wired' },
+  { id: 'cyber', label: 'SEGURIDAD', icon: 'fa-user-shield' },
+  { id: 'dictamen', label: 'DICTAMEN', icon: 'fa-file-lines' },
+  { id: 'sources', label: 'FUENTES', icon: 'fa-database' },
+  { id: 'spec', label: 'ESPECIFICACIÓN', icon: 'fa-book' },
+] as const;
+type Tab = (typeof TABS)[number]['id'];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'agents' | 'alias' | 'watchlist' | 'output' | 'invoke'>('overview');
+  return <CaseProvider><Shell /></CaseProvider>;
+}
+
+function Shell() {
+  const [tab, setTab] = useState<Tab>('case');
+  const [spec, setSpec] = useState<'overview' | 'agents' | 'pipeline' | 'watchlist' | 'output'>('overview');
+  const { state } = useCase();
 
   return (
     <div className="min-h-screen bg-[#0a0e17] text-gray-100 font-mono">
       <Header />
-      
-      {/* Navigation */}
       <nav className="border-b border-cyan-900/30 bg-[#0d1220]/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1 overflow-x-auto py-2">
-            {[
-              { id: 'overview', label: 'OVERVIEW', icon: 'fa-shield-halved' },
-              { id: 'agents', label: 'AGENTS', icon: 'fa-microchip' },
-              { id: 'alias', label: 'ALIAS PIPELINE', icon: 'fa-fingerprint' },
-              { id: 'watchlist', label: 'WATCHLIST', icon: 'fa-globe' },
-              { id: 'output', label: 'DICTAMEN', icon: 'fa-file-lines' },
-              { id: 'invoke', label: 'INVOKE', icon: 'fa-terminal' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+          <div className="flex gap-1 overflow-x-auto py-2 items-center">
+            {TABS.map((t) => (
+              <button key={t.id} onClick={() => setTab(t.id)}
                 className={`px-4 py-2 rounded text-xs font-bold tracking-wider transition-all whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
-                }`}
-              >
-                <i className={`fas ${tab.icon} mr-2`}></i>
-                {tab.label}
+                  tab === t.id ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'}`}>
+                <i className={`fas ${t.icon} mr-2`}></i>{t.label}
+                {t.id === 'case' && state.findings.length > 0 && <span className="ml-2 px-1.5 rounded bg-cyan-500/30 text-cyan-200">{state.findings.length}</span>}
               </button>
             ))}
           </div>
         </div>
       </nav>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {activeTab === 'overview' && (
+        {tab === 'case' && <CaseModule go={(t) => setTab(t as Tab)} />}
+        {tab === 'alias' && <AliasModule />}
+        {tab === 'doc' && <DocModule />}
+        {tab === 'net' && <NetModule />}
+        {tab === 'cyber' && <CyberModule />}
+        {tab === 'dictamen' && <DictamenModule />}
+        {tab === 'sources' && <SourcesModule />}
+        {tab === 'spec' && (
           <div className="space-y-8">
-            <HeroSection />
-            <AgentGrid />
-            <WorkflowPanel />
-            <CapabilitiesPanel />
+            <div className="flex gap-2 flex-wrap">
+              {([['overview', 'VISIÓN GENERAL'], ['agents', 'AGENTES'], ['pipeline', 'PIPELINE ALIAS'], ['watchlist', 'LISTAS'], ['output', 'FORMATO DICTAMEN']] as const).map(([id, l]) => (
+                <button key={id} onClick={() => setSpec(id)} className={`px-3 py-1.5 rounded text-[11px] border ${spec === id ? 'border-cyan-500/50 text-cyan-300 bg-cyan-500/10' : 'border-gray-800 text-gray-500'}`}>{l}</button>
+              ))}
+            </div>
+            {spec === 'overview' && <><HeroSection /><AgentGrid /><WorkflowPanel /><CapabilitiesPanel /></>}
+            {spec === 'agents' && <AgentGrid expanded />}
+            {spec === 'pipeline' && <AliasPipeline />}
+            {spec === 'watchlist' && <WatchlistTable />}
+            {spec === 'output' && <OutputPreview />}
           </div>
         )}
-        {activeTab === 'agents' && (
-          <div className="space-y-8">
-            <AgentGrid expanded />
-          </div>
-        )}
-        {activeTab === 'alias' && <AliasPipeline />}
-        {activeTab === 'watchlist' && <WatchlistTable />}
-        {activeTab === 'output' && <OutputPreview />}
-        {activeTab === 'invoke' && <InvocationPanel />}
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-cyan-900/20 py-6 text-center text-xs text-gray-600">
         <p>856-FFCI v3.1 — Sistema Multi-Agente de Grado Pericial</p>
-        <p className="mt-1">Arquitectura de Inteligencia Forense Financiera y Cibernética</p>
-        <a 
-          href="/download.html" 
-          target="_blank"
-          className="inline-block mt-3 px-4 py-2 rounded bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30 transition-all text-xs font-bold"
-        >
-          <i className="fas fa-download mr-2"></i>
-          DESCARGAR PROYECTO (ZIP)
-        </a>
+        <p className="mt-1">Dictámenes técnicos verificables · la calificación jurídica corresponde al receptor</p>
       </footer>
     </div>
   );
